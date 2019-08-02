@@ -19,7 +19,7 @@
 #include <unordered_map>
 #include <queue>
 #include <opencv2/core/eigen.hpp>
-#include <Eigen/Dense>
+#include <eigen3/Eigen/Dense>
 
 class Estimator
 {

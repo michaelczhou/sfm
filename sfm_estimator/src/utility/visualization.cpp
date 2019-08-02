@@ -83,8 +83,8 @@ void printStatistics(const Estimator &estimator, double t)
     if (estimator.solver_flag != Estimator::SolverFlag::NON_LINEAR)
         return;
     //printf("position: %f, %f, %f\r", estimator.Ps[WINDOW_SIZE].x(), estimator.Ps[WINDOW_SIZE].y(), estimator.Ps[WINDOW_SIZE].z());
-    ROS_DEBUG_STREAM("position: " << estimator.Ps[WINDOW_SIZE].transpose());
-    ROS_DEBUG_STREAM("orientation: " << estimator.Vs[WINDOW_SIZE].transpose());
+    ROS_DEBUG_STREAM("sfm_position: " << estimator.Ps[WINDOW_SIZE].transpose());
+    ROS_DEBUG_STREAM("sfm_orientation: " << estimator.Vs[WINDOW_SIZE].transpose());
     if (ESTIMATE_EXTRINSIC)
     {
         cv::FileStorage fs(EX_CALIB_RESULT_PATH, cv::FileStorage::WRITE);
@@ -360,7 +360,7 @@ void pubKeyframe(const Estimator &estimator)
         Quaterniond R = Quaterniond(estimator.Rs[i]);
 
         nav_msgs::Odometry odometry;
-        odometry.header.stamp = ros::Time(estimator.Headers[WINDOW_SIZE - 2]);
+        //odometry.header.stamp = ros::Time(estimator.Headers[WINDOW_SIZE - 2]);
         odometry.header.frame_id = "world";
         odometry.pose.pose.position.x = P.x();
         odometry.pose.pose.position.y = P.y();
@@ -375,7 +375,7 @@ void pubKeyframe(const Estimator &estimator)
 
 
         sensor_msgs::PointCloud point_cloud;
-        point_cloud.header.stamp = ros::Time(estimator.Headers[WINDOW_SIZE - 2]);
+        //point_cloud.header.stamp = ros::Time(estimator.Headers[WINDOW_SIZE - 2]);
         point_cloud.header.frame_id = "world";
         for (auto &it_per_id : estimator.f_manager.feature)
         {

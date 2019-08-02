@@ -39,7 +39,6 @@ void update()
     latest_time = current_time;
     tmp_P = estimator.Ps[WINDOW_SIZE];
     tmp_Q = estimator.Rs[WINDOW_SIZE];
-    tmp_V = estimator.Vs[WINDOW_SIZE];
 }
 
 std::vector<sensor_msgs::PointCloudConstPtr> getMeasurements()
@@ -92,14 +91,6 @@ void restart_callback(const std_msgs::BoolConstPtr &restart_msg)
     return;
 }
 
-void relocalization_callback(const sensor_msgs::PointCloudConstPtr &points_msg)
-{
-    //printf("relocalization callback! \n");
-    m_buf.lock();
-    relo_buf.push(points_msg);
-    m_buf.unlock();
-}
-
 void process(){
     while (true){
         std::vector<sensor_msgs::PointCloudConstPtr> measurements;
@@ -113,10 +104,11 @@ void process(){
         for (auto &measurement : measurements)
         {
             auto img_msg = measurement;
-            double dx = 0, dy = 0, dz = 0, rx = 0, ry = 0, rz = 0;
+            //double dx = 0, dy = 0, dz = 0, rx = 0, ry = 0, rz = 0;
 
             TicToc t_s;
             std::map<int, std::vector<std::pair<int, Eigen::Matrix<double, 7, 1>>>> image;
+            ROS_INFO("img_msg->points.size() = %d", img_msg->points.size());
             for (unsigned int i = 0; i < img_msg->points.size(); i++)
             {
                 int v = img_msg->channels[0].values[i] + 0.5;
@@ -167,8 +159,7 @@ int main(int argc, char **argv){
     estimator.setParameter();
     registerPub(n);
 
-    ros::Subscriber sub_image = n.subscribe("/feature_tracker/feature", 2000, feature_callback);
-    ros::Subscriber sub_restart = n.subscribe("/feature_tracker/restart", 2000, restart_callback);
+    ros::Subscriber sub_image = n.subscribe("/sfm_feature_tracker/feature", 2000, feature_callback);
 
     std::thread measurement_process{process};
     ros::spin();

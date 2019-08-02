@@ -16,9 +16,9 @@ using namespace std;
 struct SFMFeature
 {
     bool state;
-    int id;
+    int id;   //corner id
     vector<pair<int,Vector2d>> observation;
-    double position[3];
+    double position[3]; //corner 3D position
     double depth;
 };
 

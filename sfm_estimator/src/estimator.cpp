@@ -53,9 +53,17 @@ void Estimator::clearState()
 
 void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const std_msgs::Header &header)
 {
-    ROS_DEBUG("new image coming ------------------------------------------");
-    ROS_DEBUG("Adding feature points %lu", image.size());
+    ROS_INFO("new image coming ------------------------------------------");
+    ROS_INFO("Adding feature points %lu", image.size());
+    if (f_manager.addFeatureCheckParallax(frame_count, image, td))
+        marginalization_flag = MARGIN_OLD;
+    else
+        marginalization_flag = MARGIN_SECOND_NEW;
 
+    ROS_INFO("this frame is--------------------%s", marginalization_flag ? "reject" : "accept");
+    ROS_INFO("%s", marginalization_flag ? "Non-keyframe" : "Keyframe");
+    ROS_INFO("Solving %d", frame_count);
+    ROS_INFO("number of feature: %d", f_manager.getFeatureCount());
     Headers[frame_count] = header;
 
     ImageFrame imageframe(image, header.stamp.toSec());
@@ -63,18 +71,24 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
 
     if (frame_count == WINDOW_SIZE) {
         bool result = false;
+        //solve all pnp and get all 3D features
         result = initialStructure();
         initial_timestamp = header.stamp.toSec();
-
-        f_manager.removeFailures();
-        last_R = Rs[WINDOW_SIZE];
-        last_P = Ps[WINDOW_SIZE];
-        last_R0 = Rs[0];
-        last_P0 = Ps[0];
+        if(result){
+            ROS_INFO("initial is successful");
+            solver_flag = NON_LINEAR;
+            //solveOdometry();
+            f_manager.removeFailures();
+            last_R = Rs[WINDOW_SIZE];
+            last_P = Ps[WINDOW_SIZE];
+            last_R0 = Rs[0];
+            last_P0 = Ps[0];
+        }
     }
     else
         frame_count++;
 }
+
 bool Estimator::initialStructure()
 {
     TicToc t_sfm;
@@ -82,7 +96,7 @@ bool Estimator::initialStructure()
     Quaterniond Q[frame_count + 1];
     Vector3d T[frame_count + 1];
     map<int, Vector3d> sfm_tracked_points;
-    vector<SFMFeature> sfm_f;
+    vector<SFMFeature> sfm_f;  //normalized feature
     for (auto &it_per_id : f_manager.feature)
     {
         int imu_j = it_per_id.start_frame - 1;
@@ -100,20 +114,24 @@ bool Estimator::initialStructure()
     Matrix3d relative_R;
     Vector3d relative_T;
     int l;
+    //enough corres parallax and inliner_cnt to compute Rt firstly
     if (!relativePose(relative_R, relative_T, l))
     {
         ROS_INFO("Not enough features or parallax; Move device around");
         return false;
     }
+    ROS_INFO(" to sfm");
     GlobalSFM sfm;
-    if(!sfm.construct(frame_count + 1, Q, T, l,
+    //trangulate and solvePnP
+    //compute l frame's pose and all feature points' position,5 steps
+    if(!sfm.construct(frame_count, Q, T, l,
                       relative_R, relative_T,
                       sfm_f, sfm_tracked_points))
     {
-        ROS_DEBUG("global SFM failed!");
+        ROS_INFO("global SFM failed!");
         return false;
     }
-
+    ROS_INFO("construct weel done!");
     //solve pnp for all frame
     map<double, ImageFrame>::iterator frame_it;
     map<int, Vector3d>::iterator it;
@@ -185,14 +203,16 @@ bool Estimator::initialStructure()
     return true;
 }
 
+//compute the first frame's pose in the window by judge parallax,
 bool Estimator::relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l)
 {
     // find previous frame which contians enough correspondance and parallex with newest frame
     for (int i = 0; i < WINDOW_SIZE; i++)
     {
         vector<pair<Vector3d, Vector3d>> corres;
-        //i and last frame
+        //corresponding i and last frame
         corres = f_manager.getCorresponding(i, WINDOW_SIZE);
+        ROS_INFO("corres = %d", corres.size());
         if (corres.size() > 20)
         {
             double sum_parallax = 0;
@@ -205,15 +225,77 @@ bool Estimator::relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l)
                 sum_parallax = sum_parallax + parallax;
             }
             average_parallax = 1.0 * sum_parallax / int(corres.size());
+            ROS_INFO("average_parallax * 460 = %d", average_parallax * 460);
             if(average_parallax * 460 > 30 && m_estimator.solveRelativeRT(corres, relative_R, relative_T))
             {
                 l = i;
+                ROS_INFO("l = %d", l);
                 ROS_DEBUG("average_parallax %f choose l %d and newest frame to triangulate the whole structure", average_parallax * 460, l);
                 return true;
             }
         }
     }
     return false;
+}
+
+void Estimator::vector2double() {
+    for (int i = 0;i <= WINDOW_SIZE; i++){
+        para_Pose[i][0] = Ps[i].x();
+        para_Pose[i][1] = Ps[i].y();
+        para_Pose[i][2] = Ps[i].z();
+        Quaterniond q{Rs[i]};
+        para_Pose[i][3] = q.x();
+        para_Pose[i][4] = q.y();
+        para_Pose[i][5] = q.z();
+        para_Pose[i][6] = q.w();
+    }
+
+    Eigen::VectorXd dep = f_manager.getDepthVector();
+    for(int i = 0;i < f_manager.getFeatureCount(); i++)
+        para_Feature[i][0] = dep(i);
+}
+
+void Estimator::double2vector()
+{
+    Vector3d origin_R0 = Utility::R2ypr(Rs[0]);
+    Vector3d origin_P0 = Ps[0];
+
+    if (failure_occur)
+    {
+        origin_R0 = Utility::R2ypr(last_R0);
+        origin_P0 = last_P0;
+        failure_occur = 0;
+    }
+    Vector3d origin_R00 = Utility::R2ypr(Quaterniond(para_Pose[0][6],
+                                                     para_Pose[0][3],
+                                                     para_Pose[0][4],
+                                                     para_Pose[0][5]).toRotationMatrix());
+    double y_diff = origin_R0.x() - origin_R00.x();
+    //TODO
+    Matrix3d rot_diff = Utility::ypr2R(Vector3d(y_diff, 0, 0));
+    if (abs(abs(origin_R0.y()) - 90) < 1.0 || abs(abs(origin_R00.y()) - 90) < 1.0)
+    {
+        ROS_DEBUG("euler singular point!");
+        rot_diff = Rs[0] * Quaterniond(para_Pose[0][6],
+                                       para_Pose[0][3],
+                                       para_Pose[0][4],
+                                       para_Pose[0][5]).toRotationMatrix().transpose();
+    }
+
+    for (int i = 0; i <= WINDOW_SIZE; i++)
+    {
+
+        Rs[i] = rot_diff * Quaterniond(para_Pose[i][6], para_Pose[i][3], para_Pose[i][4], para_Pose[i][5]).normalized().toRotationMatrix();
+
+        Ps[i] = rot_diff * Vector3d(para_Pose[i][0] - para_Pose[0][0],
+                                    para_Pose[i][1] - para_Pose[0][1],
+                                    para_Pose[i][2] - para_Pose[0][2]) + origin_P0;
+    }
+
+    VectorXd dep = f_manager.getDepthVector();
+    for (int i = 0; i < f_manager.getFeatureCount(); i++)
+        dep(i) = para_Feature[i][0];
+    f_manager.setDepth(dep);
 }
 
 bool Estimator::failureDetection()
@@ -262,4 +344,59 @@ bool Estimator::failureDetection()
         //return true;
     }
     return false;
+}
+
+void Estimator::solveOdometry() {
+    if(frame_count < WINDOW_SIZE)
+        return;
+    if(solver_flag == NON_LINEAR){
+        TicToc t_tri;
+        f_manager.triangulate(Ps, tic,ric);
+        optimization();
+    }
+}
+
+void Estimator::optimization() {
+    ceres::Problem problem;
+    ceres::LossFunction *loss_function;
+    loss_function = new ceres::CauchyLoss(1.0);
+    for(int i = 0; i < WINDOW_SIZE + 1; ++i){
+        ceres::LocalParameterization *local_Parameterization = new PoseLocalParameterization();
+        problem.AddParameterBlock(para_Pose[i], SIZE_POSE, local_Parameterization);
+    }
+
+    TicToc t_whole, t_prepare;
+    vector2double();
+
+    int f_m_cnt = 0;
+    int feature_index = -1;
+    for (auto &it_per_id : f_manager.feature){
+        it_per_id.used_num = it_per_id.feature_per_frame.size();
+        int imu_i = it_per_id.start_frame, imu_j = imu_i - 1;
+
+        Vector3d pts_i = it_per_id.feature_per_frame[0].point;
+        for (auto &it_per_frame : it_per_id.feature_per_frame) {
+            imu_j++;
+            if (imu_i == imu_j) {
+                continue;
+            }
+            Vector3d pts_j = it_per_frame.point;
+            ProjectionFactor *f = new ProjectionFactor(pts_i, pts_j);
+            problem.AddResidualBlock(f, loss_function, para_Pose[imu_i], para_Pose[imu_j], para_Ex_Pose[0],
+                                     para_Feature[feature_index]);
+
+            f_m_cnt++;
+        }
+    }
+
+    ceres::Solver::Options options;
+    options.linear_solver_type = ceres::DENSE_SCHUR;
+    options.trust_region_strategy_type = ceres::DOGLEG;
+    options.max_num_iterations = NUM_ITERATIONS;
+    options.max_solver_time_in_seconds = SOLVER_TIME;
+    TicToc t_solver;
+    ceres::Solver::Summary summary;
+    ceres::Solve(options, &problem, &summary);
+
+    double2vector();
 }
