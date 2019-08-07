@@ -7,14 +7,12 @@
 #include "initial/solve_5pts.h"
 #include "initial/initial_sfm.h"
 #include "initial/initial_alignment.h"
-#include "initial/initial_ex_rotation.h"
 #include <std_msgs/Header.h>
 #include <std_msgs/Float32.h>
 
 #include <ceres/ceres.h>
 #include "factor/pose_local_parameterization.h"
 #include "factor/projection_factor.h"
-#include "factor/projection_td_factor.h"
 
 #include <unordered_map>
 #include <queue>
@@ -29,6 +27,7 @@ class Estimator
     void setParameter();
     // interface
     void processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const std_msgs::Header &header);
+    void visualIntegration(const map<int, vector<pair<int,Eigen::Matrix<double, 7, 1>>>> &image, const std_msgs::Header &header);
     void setReloFrame(double _frame_stamp, int _frame_index, vector<Vector3d> &_match_points, Vector3d _relo_t, Matrix3d _relo_r);
 
     // internal
@@ -43,11 +42,13 @@ class Estimator
     void vector2double();
     void double2vector();
     bool failureDetection();
+    bool imu_false = false;
 
     enum SolverFlag
     {
         INITIAL,
-        NON_LINEAR
+        NON_LINEAR,
+        SFM
     };
 
     enum MarginalizationFlag
@@ -72,8 +73,8 @@ class Estimator
     Vector3d Bgs[(WINDOW_SIZE + 1)];
     double td;
 
-    Matrix3d back_R0, last_R, last_R0;
-    Vector3d back_P0, last_P, last_P0;
+    Matrix3d back_R0, last_R, last_R0, curr_R;
+    Vector3d back_P0, last_P, last_P0, curr_P;
     std_msgs::Header Headers[(WINDOW_SIZE + 1)];
 
     vector<double> dt_buf[(WINDOW_SIZE + 1)];
@@ -85,7 +86,6 @@ class Estimator
 
     FeatureManager f_manager;
     MotionEstimator m_estimator;
-    InitialEXRotation initial_ex_rotation;
 
     bool first_imu;
     bool is_valid, is_key;

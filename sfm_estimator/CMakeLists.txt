@@ -34,13 +34,10 @@ add_executable(sfm_estimator
         src/feature_manager.cpp
         src/factor/pose_local_parameterization.cpp
         src/factor/projection_factor.cpp
-        src/factor/projection_td_factor.cpp
         src/utility/utility.cpp
         src/utility/visualization.cpp
         src/utility/CameraPoseVisualization.cpp
         src/initial/solve_5pts.cpp
-        src/initial/initial_aligment.cpp
         src/initial/initial_sfm.cpp
-        src/initial/initial_ex_rotation.cpp
         )
 target_link_libraries(sfm_estimator ${catkin_LIBRARIES} ${OpenCV_LIBS} ${CERES_LIBRARIES})

@@ -15,7 +15,6 @@ std::condition_variable con;
 double current_time = -1;
 
 std::queue<sensor_msgs::PointCloudConstPtr> feature_buf;
-std::queue<sensor_msgs::PointCloudConstPtr> relo_buf;
 
 std::mutex m_buf;
 std::mutex m_state;
@@ -32,6 +31,8 @@ Eigen::Vector3d gyr_0;
 bool init_feature = 0;
 bool init_imu = 1;
 double last_imu_t = 0;
+
+int flag = 0;
 
 void update()
 {
@@ -72,25 +73,6 @@ void feature_callback(const sensor_msgs::PointCloudConstPtr &feature_msg)
     con.notify_one();
 }
 
-void restart_callback(const std_msgs::BoolConstPtr &restart_msg)
-{
-    if (restart_msg->data == true)
-    {
-        ROS_WARN("restart the estimator!");
-        m_buf.lock();
-        while(!feature_buf.empty())
-            feature_buf.pop();
-        m_buf.unlock();
-        m_estimator.lock();
-        estimator.clearState();
-        estimator.setParameter();
-        m_estimator.unlock();
-        current_time = -1;
-        last_imu_t = 0;
-    }
-    return;
-}
-
 void process(){
     while (true){
         std::vector<sensor_msgs::PointCloudConstPtr> measurements;
@@ -101,19 +83,22 @@ void process(){
         });
         lk.unlock();
         m_estimator.lock();
+
+        flag++;
+        if( flag == 30)
+            estimator.solver_flag = Estimator::SFM;
+        std::cout << " flag = " << flag << std::endl;
         for (auto &measurement : measurements)
         {
             auto img_msg = measurement;
             //double dx = 0, dy = 0, dz = 0, rx = 0, ry = 0, rz = 0;
-
             TicToc t_s;
             std::map<int, std::vector<std::pair<int, Eigen::Matrix<double, 7, 1>>>> image;
             ROS_INFO("img_msg->points.size() = %d", img_msg->points.size());
-            for (unsigned int i = 0; i < img_msg->points.size(); i++)
-            {
+            for (unsigned int i = 0; i < img_msg->points.size();i++){
                 int v = img_msg->channels[0].values[i] + 0.5;
-                int feature_id = v / NUM_OF_CAM;
-                int camera_id = v % NUM_OF_CAM;
+                int feature_id = v / 1;
+                int camera_id = v % 1;
                 double x = img_msg->points[i].x;
                 double y = img_msg->points[i].y;
                 double z = img_msg->points[i].z;
@@ -124,9 +109,11 @@ void process(){
                 ROS_ASSERT(z == 1);
                 Eigen::Matrix<double, 7, 1> xyz_uv_velocity;
                 xyz_uv_velocity << x, y, z, p_u, p_v, velocity_x, velocity_y;
-                image[feature_id].emplace_back(camera_id,  xyz_uv_velocity);
+                image[feature_id].emplace_back(camera_id, xyz_uv_velocity);
             }
-            estimator.processImage(image, img_msg->header);
+            //estimator.processImage(image, img_msg->header);
+
+            estimator.visualIntegration(image, img_msg->header);
 
             double whole_t = t_s.toc();
             printStatistics(estimator, whole_t);
@@ -144,6 +131,7 @@ void process(){
         m_estimator.unlock();
         m_buf.lock();
         m_state.lock();
+        update();
         if (estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR)
             update();
         m_state.unlock();
@@ -154,7 +142,7 @@ void process(){
 int main(int argc, char **argv){
     ros::init(argc, argv, "sfm_estimator");
     ros::NodeHandle n("~");
-    ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Info);
+    ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Debug);
     readParameters(n);
     estimator.setParameter();
     registerPub(n);

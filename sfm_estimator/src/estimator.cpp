@@ -1,4 +1,5 @@
 #include "camera_estimator.h"
+#include<iostream>
 
 Estimator::Estimator(): f_manager{Rs}
 {
@@ -15,7 +16,6 @@ void Estimator::setParameter()
     }
     f_manager.setRic(ric);
     ProjectionFactor::sqrt_info = FOCAL_LENGTH / 1.5 * Matrix2d::Identity();
-    ProjectionTdFactor::sqrt_info = FOCAL_LENGTH / 1.5 * Matrix2d::Identity();
     td = TD;
 }
 
@@ -25,8 +25,6 @@ void Estimator::clearState()
     {
         Rs[i].setIdentity();
         Ps[i].setZero();
-        Vs[i].setZero();
-        dt_buf[i].clear();
     }
 
     for (int i = 0; i < NUM_OF_CAM; i++)
@@ -53,48 +51,135 @@ void Estimator::clearState()
 
 void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const std_msgs::Header &header)
 {
-    ROS_INFO("new image coming ------------------------------------------");
-    ROS_INFO("Adding feature points %lu", image.size());
+    td = 0;
+    ROS_DEBUG("new image coming ------------------------------------------");
+    ROS_DEBUG("Adding feature points %lu", image.size());
     if (f_manager.addFeatureCheckParallax(frame_count, image, td))
         marginalization_flag = MARGIN_OLD;
     else
         marginalization_flag = MARGIN_SECOND_NEW;
 
-    ROS_INFO("this frame is--------------------%s", marginalization_flag ? "reject" : "accept");
-    ROS_INFO("%s", marginalization_flag ? "Non-keyframe" : "Keyframe");
-    ROS_INFO("Solving %d", frame_count);
-    ROS_INFO("number of feature: %d", f_manager.getFeatureCount());
+    ROS_DEBUG("this frame is--------------------%s", marginalization_flag ? "reject" : "accept");
+    ROS_DEBUG("%s", marginalization_flag ? "Non-keyframe" : "Keyframe");
+    ROS_DEBUG("Solving %d", frame_count);
+    ROS_DEBUG("number of feature: %d", f_manager.getFeatureCount());
     Headers[frame_count] = header;
 
+    //TODO :timestamp
     ImageFrame imageframe(image, header.stamp.toSec());
     all_image_frame.insert(make_pair(header.stamp.toSec(), imageframe));
 
-    if (frame_count == WINDOW_SIZE) {
-        bool result = false;
-        //solve all pnp and get all 3D features
-        result = initialStructure();
-        initial_timestamp = header.stamp.toSec();
-        if(result){
-            ROS_INFO("initial is successful");
+
+    if (solver_flag == INITIAL){
+        if (frame_count == WINDOW_SIZE) {
+            bool result = false;
+            //solve all pnp and get all 3D features
+            cout << " cout = " << all_image_frame.size() << endl;
+                result = initialStructure();
+
+            initial_timestamp = header.stamp.toSec();
+            if(result){
+                //get all image pose already
+                ROS_INFO("initial is successful");
+
+
+                solver_flag = NON_LINEAR;
+                //solveOdometry();
+                slideWindow();
+                f_manager.removeFailures();
+                last_R = Rs[WINDOW_SIZE];
+                last_P = Ps[WINDOW_SIZE];
+                last_R0 = Rs[0];
+                last_P0 = Ps[0];
+            } else
+                slideWindow();
+            }
+        else
+            frame_count++;
+    }
+    else{
+        TicToc t_solve;
+        //solveOdometry();
+        ROS_DEBUG("solver costs: %fms", t_solve.toc());
+
+        if (failureDetection())
+        {
+            ROS_WARN("failure detection!");
+            failure_occur = 1;
+            clearState();
+            setParameter();
+            ROS_WARN("system reboot!");
+            return;
+        }
+
+        TicToc t_margin;
+        slideWindow();
+        f_manager.removeFailures();
+        ROS_DEBUG("marginalization costs: %fms", t_margin.toc());
+        // prepare output of VINS
+        key_poses.clear();
+        for (int i = 0; i <= WINDOW_SIZE; i++)
+            key_poses.push_back(Ps[i]);
+
+        last_R = Rs[WINDOW_SIZE];
+        last_P = Ps[WINDOW_SIZE];
+        Eigen::Quaterniond currQ = Eigen::Quaterniond(last_R);
+        std::cout << "currQ = " << currQ.w() << " " << currQ.x() << " " << currQ.y() << " " << currQ.z() << std::endl;
+        last_R0 = Rs[0];
+        last_P0 = Ps[0];
+    }
+}
+
+void Estimator::visualIntegration(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image,
+                                  const std_msgs::Header &header) {
+    td = 0;
+    if (f_manager.addFeatureCheckParallax(frame_count, image, td))
+        marginalization_flag = MARGIN_OLD;
+    else
+        marginalization_flag = MARGIN_SECOND_NEW;
+
+    Headers[frame_count] = header;
+
+    //TODO :timestamp
+    ImageFrame imageframe(image, header.stamp.toSec());
+    all_image_frame.insert(make_pair(header.stamp.toSec(), imageframe));
+
+    cout << "all frame = " << all_image_frame.size() << endl;
+    if (frame_count == WINDOW_SIZE)
+    {
+        if(solver_flag == SFM){
             solver_flag = NON_LINEAR;
-            //solveOdometry();
-            f_manager.removeFailures();
+
+            Estimator::initialStructure();
+
+            initial_timestamp = header.stamp.toSec();
+
+            //f_manager.removeFailures();
+            ROS_INFO("Initialization finish!");
+
+            curr_R = all_image_frame.end()->second.R;
+            curr_P = all_image_frame.end()->second.T;
             last_R = Rs[WINDOW_SIZE];
             last_P = Ps[WINDOW_SIZE];
-            last_R0 = Rs[0];
-            last_P0 = Ps[0];
-        }
+            Eigen::Quaterniond currQ = Eigen::Quaterniond(curr_R);
+            Eigen::Vector3d currT = curr_P;
+
+            cout << " Q = " << currQ.w() << " " << currQ.x() << " " << currQ.y() << " " << currQ.z() << endl;
+            cout << " T = " << currT[0] << " " << currT[1] << " " << currT[2] << endl;
+            cout <<" over " << endl;
+            getchar();
+        } else
+            slideWindow();
     }
     else
         frame_count++;
 }
-
 bool Estimator::initialStructure()
 {
     TicToc t_sfm;
     // global sfm
-    Quaterniond Q[frame_count + 1];
-    Vector3d T[frame_count + 1];
+    Quaterniond Q[frame_count];
+    Vector3d T[frame_count];
     map<int, Vector3d> sfm_tracked_points;
     vector<SFMFeature> sfm_f;  //normalized feature
     for (auto &it_per_id : f_manager.feature)
@@ -123,8 +208,8 @@ bool Estimator::initialStructure()
     ROS_INFO(" to sfm");
     GlobalSFM sfm;
     //trangulate and solvePnP
-    //compute l frame's pose and all feature points' position,5 steps
-    if(!sfm.construct(frame_count, Q, T, l,
+    //compute key frame's pose and all feature points' position,5 steps
+    if(!sfm.construct(frame_count + 1, Q, T, l,
                       relative_R, relative_T,
                       sfm_f, sfm_tracked_points))
     {
@@ -136,18 +221,14 @@ bool Estimator::initialStructure()
     map<double, ImageFrame>::iterator frame_it;
     map<int, Vector3d>::iterator it;
     frame_it = all_image_frame.begin( );
+    cout << "all size = " << all_image_frame.size() << endl;
     for (int i = 0; frame_it != all_image_frame.end( ); frame_it++)
     {
         // provide initial guess
         cv::Mat r, rvec, t, D, tmp_r;
-        if((frame_it->first) == Headers[i].stamp.toSec())
-        {
-            frame_it->second.is_key_frame = true;
-            frame_it->second.R = Q[i].toRotationMatrix() * RIC[0].transpose();
-            frame_it->second.T = T[i];
-            i++;
-            continue;
-        }
+        cout << "aa" << endl;
+        //getchar();
+
         if((frame_it->first) > Headers[i].stamp.toSec())
         {
             i++;
@@ -183,11 +264,13 @@ bool Estimator::initialStructure()
         {
             cout << "pts_3_vector size " << pts_3_vector.size() << endl;
             ROS_DEBUG("Not enough points for solve pnp !");
+            //getchar();
             return false;
         }
         if (! cv::solvePnP(pts_3_vector, pts_2_vector, K, D, rvec, t, 1))
         {
             ROS_DEBUG("solve pnp fail!");
+            //getchar();
             return false;
         }
         cv::Rodrigues(rvec, r);
@@ -199,10 +282,86 @@ bool Estimator::initialStructure()
         T_pnp = R_pnp * (-T_pnp);
         frame_it->second.R = R_pnp * RIC[0].transpose();
         frame_it->second.T = T_pnp;
+        cout << "hhhh" << endl;
+        //getchar();
+
+            Eigen::Quaterniond curr_Q =Quaterniond(frame_it->second.R);
+            std::ofstream foutS("/home/zhouchang/result/sfm.txt",std::ios::app);
+            foutS.setf(std::ios::fixed, std::ios::floatfield);
+            foutS.precision(5);
+            foutS << frame_it->second.t * 1e9 << " ";
+            foutS.precision(5);
+            foutS << frame_it->second.T.x() << " "
+                  << frame_it->second.T.y() << " "
+                  << frame_it->second.T.z() << " "
+                  << curr_Q.x() << " "
+                  << curr_Q.y() << " "
+                  << curr_Q.z() << " "
+                  << curr_Q.w() << endl;
+            foutS.close();
     }
     return true;
 }
 
+void Estimator::slideWindow()
+{
+    TicToc t_margin;
+    if (marginalization_flag == MARGIN_OLD)
+    {
+        double t_0 = Headers[0].stamp.toSec();
+        back_R0 = Rs[0];
+        back_P0 = Ps[0];
+        if (frame_count == WINDOW_SIZE)
+        {
+            for (int i = 0; i < WINDOW_SIZE; i++)
+            {
+                Rs[i].swap(Rs[i + 1]);
+                Headers[i] = Headers[i + 1];
+                Ps[i].swap(Ps[i + 1]);
+            }
+            Headers[WINDOW_SIZE] = Headers[WINDOW_SIZE - 1];
+            Ps[WINDOW_SIZE] = Ps[WINDOW_SIZE - 1];
+            Rs[WINDOW_SIZE] = Rs[WINDOW_SIZE - 1];
+
+            slideWindowOld();
+        }
+    }
+    else
+    {
+        if (frame_count == WINDOW_SIZE)
+        {
+            Ps[frame_count - 1] = Ps[frame_count];
+            Rs[frame_count - 1] = Rs[frame_count];
+            slideWindowNew();
+        }
+    }
+}
+
+// real marginalization is removed in solve_ceres()
+void Estimator::slideWindowNew()
+{
+    sum_of_front++;
+    f_manager.removeFront(frame_count);
+}
+// real marginalization is removed in solve_ceres()
+void Estimator::slideWindowOld()
+{
+    sum_of_back++;
+
+    bool shift_depth = solver_flag == NON_LINEAR ? true : false;
+    if (shift_depth)
+    {
+        Matrix3d R0, R1;
+        Vector3d P0, P1;
+        R0 = back_R0 * ric[0];
+        R1 = Rs[0] * ric[0];
+        P0 = back_P0 + back_R0 * tic[0];
+        P1 = Ps[0] + Rs[0] * tic[0];
+        f_manager.removeBackShiftDepth(R0, P0, R1, P1);
+    }
+    else
+        f_manager.removeBack();
+}
 //compute the first frame's pose in the window by judge parallax,
 bool Estimator::relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l)
 {
@@ -372,6 +531,10 @@ void Estimator::optimization() {
     int feature_index = -1;
     for (auto &it_per_id : f_manager.feature){
         it_per_id.used_num = it_per_id.feature_per_frame.size();
+        if (!(it_per_id.used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2))
+            continue;
+
+        ++feature_index;
         int imu_i = it_per_id.start_frame, imu_j = imu_i - 1;
 
         Vector3d pts_i = it_per_id.feature_per_frame[0].point;
@@ -382,8 +545,7 @@ void Estimator::optimization() {
             }
             Vector3d pts_j = it_per_frame.point;
             ProjectionFactor *f = new ProjectionFactor(pts_i, pts_j);
-            problem.AddResidualBlock(f, loss_function, para_Pose[imu_i], para_Pose[imu_j], para_Ex_Pose[0],
-                                     para_Feature[feature_index]);
+            problem.AddResidualBlock(f, loss_function, para_Pose[imu_i], para_Pose[imu_j], para_Feature[feature_index]);
 
             f_m_cnt++;
         }

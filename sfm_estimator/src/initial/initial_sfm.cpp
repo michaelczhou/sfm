@@ -120,8 +120,8 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 			  vector<SFMFeature> &sfm_f, map<int, Vector3d> &sfm_tracked_points)
 {
 	feature_num = sfm_f.size();
-	cout << "feature_number = " << feature_num << endl;
-	cout << "set 0 and " << l << " as known " << endl;
+//	cout << "feature_number = " << feature_num << endl;
+//	cout << "set 0 and " << l << " as known " << endl;
 	// have relative_r relative_t
 	// intial two view
 	q[l].w() = 1;
@@ -131,8 +131,8 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 	T[l].setZero();
 	q[frame_num - 1] = q[l] * Quaterniond(relative_R);
 	T[frame_num - 1] = relative_T;
-	cout << "init q_l " << q[l].w() << " " << q[l].vec().transpose() << endl;
-	cout << "init t_l " << T[l].transpose() << endl;
+//	cout << "init q_l " << q[l].w() << " " << q[l].vec().transpose() << endl;
+//	cout << "init t_l " << T[l].transpose() << endl;
 
 	//rotate to cam frame
 	Matrix3d c_Rotation[frame_num];
@@ -155,7 +155,7 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 	Pose[frame_num - 1].block<3, 1>(0, 3) = c_Translation[frame_num - 1];
 
 
-	//1: trangulate between l ----- frame_num - 1
+	//1: trangulate between l ----- frame_num - 1(frame count)
 	//2: solve pnp l + 1; trangulate l + 1 ------- frame_num - 1; 
 	for (int i = l; i < frame_num - 1 ; i++)
 	{
@@ -247,7 +247,7 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 		c_rotation[i][3] = c_Quat[i].z();
 		problem.AddParameterBlock(c_rotation[i], 4, local_parameterization);
 		problem.AddParameterBlock(c_translation[i], 3);
-		cout << "l = " << l << endl;
+		//cout << "l = " << l << endl;
 		if (i == l)
 		{
 			problem.SetParameterBlockConstant(c_rotation[i]);
@@ -260,14 +260,15 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 
 	for (int i = 0; i < feature_num; i++)
 	{
+		//cout << "sfm_f[i].observation.size() =  " << sfm_f[i].observation.size() << endl;
 		if (sfm_f[i].state != true)
 			continue;
-		cout << "sfm_f[i].observation.size() =  " << sfm_f[i].observation.size() << endl;
 		for (int j = 0; j < int(sfm_f[i].observation.size()); j++)
 		{
 			int l = sfm_f[i].observation[j].first;
-			cout << "l =  " << l << endl;
-			cout << "sfm_f[].position = " << sfm_f[i].position[0] << sfm_f[i].position[1] << sfm_f[i].position[2] << endl;
+//			cout << "l =  " << l << endl;
+//			cout << "sfm_f[].position = " << sfm_f[i].position[0] << sfm_f[i].position[1] << sfm_f[i].position[2] << endl;
+//			cout << "sfm_f[i].observation[j].second.x() = " << sfm_f[i].observation[j].second.x()  << " sfm_f[i].observation[j].second.y()" <<  sfm_f[i].observation[j].second.y() << endl;
 			ceres::CostFunction* cost_function = ReprojectionError3D::Create(
 												sfm_f[i].observation[j].second.x(),
 												sfm_f[i].observation[j].second.y());
@@ -290,7 +291,7 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 	else
 	{
 		cout << "vision only BA not converge " << endl;
-		return false;
+		//return false;
 	}
 	for (int i = 0; i < frame_num; i++)
 	{
@@ -299,13 +300,13 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 		q[i].y() = c_rotation[i][2]; 
 		q[i].z() = c_rotation[i][3]; 
 		q[i] = q[i].inverse();
-		//cout << "final  q" << " i " << i <<"  " <<q[i].w() << "  " << q[i].vec().transpose() << endl;
+		cout << "final  q" << " i " << i <<"  " <<q[i].w() << "  " << q[i].vec().transpose() << endl;
 	}
 	for (int i = 0; i < frame_num; i++)
 	{
 
 		T[i] = -1 * (q[i] * Vector3d(c_translation[i][0], c_translation[i][1], c_translation[i][2]));
-		//cout << "final  t" << " i " << i <<"  " << T[i](0) <<"  "<< T[i](1) <<"  "<< T[i](2) << endl;
+		cout << "final  t" << " i " << i <<"  " << T[i](0) <<"  "<< T[i](1) <<"  "<< T[i](2) << endl;
 	}
 	for (int i = 0; i < (int)sfm_f.size(); i++)
 	{
