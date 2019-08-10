@@ -143,14 +143,17 @@ void Estimator::visualIntegration(const map<int, vector<pair<int, Eigen::Matrix<
     //TODO :timestamp
     ImageFrame imageframe(image, header.stamp.toSec());
     all_image_frame.insert(make_pair(header.stamp.toSec(), imageframe));
+    cout << "time = " << header.stamp.toSec() << endl;
 
     cout << "all frame = " << all_image_frame.size() << endl;
     if (frame_count == WINDOW_SIZE)
     {
         if(solver_flag == SFM){
-            solver_flag = NON_LINEAR;
+            //solver_flag = NON_LINEAR;
 
             Estimator::initialStructure();
+            slideWindow();
+            f_manager.removeFailures();
 
             initial_timestamp = header.stamp.toSec();
 
@@ -159,21 +162,28 @@ void Estimator::visualIntegration(const map<int, vector<pair<int, Eigen::Matrix<
 
             curr_R = all_image_frame.end()->second.R;
             curr_P = all_image_frame.end()->second.T;
-            last_R = Rs[WINDOW_SIZE];
-            last_P = Ps[WINDOW_SIZE];
-            Eigen::Quaterniond currQ = Eigen::Quaterniond(curr_R);
-            Eigen::Vector3d currT = curr_P;
+            last_R0 = all_image_frame.begin()->second.R;
+            last_P0 = all_image_frame.begin()->second.T;
+            last_P = Ps[7];
 
-            cout << " Q = " << currQ.w() << " " << currQ.x() << " " << currQ.y() << " " << currQ.z() << endl;
-            cout << " T = " << currT[0] << " " << currT[1] << " " << currT[2] << endl;
+            Eigen::Quaterniond currQ = Eigen::Quaterniond(last_R0.inverse() * curr_R);
+            currQ.normalized();
+            Eigen::Vector3d currT = - last_R0.inverse() * last_P0 + curr_P;
+            cout << "last_P0 = " << last_P0[0] << " " << last_P0[1] << " " << last_P0[2] << endl;
+            cout << "windows[0] = " << last_P[0] << " " << last_P[1] << " " << last_P[2] << endl;
+            cout << " res_Q = " << currQ.w() << " " << currQ.x() << " " << currQ.y() << " " << currQ.z() << endl;
+            cout << " res_T = " << currT[0] << " " << currT[1] << " " << currT[2] << endl;
             cout <<" over " << endl;
             getchar();
+
         } else
             slideWindow();
     }
     else
         frame_count++;
 }
+
+//get all_image_frame's pose
 bool Estimator::initialStructure()
 {
     TicToc t_sfm;
@@ -222,17 +232,19 @@ bool Estimator::initialStructure()
     map<int, Vector3d>::iterator it;
     frame_it = all_image_frame.begin( );
     cout << "all size = " << all_image_frame.size() << endl;
+    //every frame
     for (int i = 0; frame_it != all_image_frame.end( ); frame_it++)
     {
         // provide initial guess
         cv::Mat r, rvec, t, D, tmp_r;
-        cout << "aa" << endl;
+        //cout << "aa" << endl;
         //getchar();
 
         if((frame_it->first) > Headers[i].stamp.toSec())
         {
             i++;
         }
+        //change frame:frome world to camera for pnp
         Matrix3d R_inital = (Q[i].inverse()).toRotationMatrix();
         Vector3d P_inital = - R_inital * T[i];
         cv::eigen2cv(R_inital, tmp_r);
@@ -242,6 +254,7 @@ bool Estimator::initialStructure()
         frame_it->second.is_key_frame = false;
         vector<cv::Point3f> pts_3_vector;
         vector<cv::Point2f> pts_2_vector;
+        //every points
         for (auto &id_pts : frame_it->second.points)
         {
             int feature_id = id_pts.first;
@@ -259,6 +272,7 @@ bool Estimator::initialStructure()
                 }
             }
         }
+        //camera intrinsic parameters
         cv::Mat K = (cv::Mat_<double>(3, 3) << 1, 0, 0, 0, 1, 0, 0, 0, 1);
         if(pts_3_vector.size() < 6)
         {
@@ -276,16 +290,18 @@ bool Estimator::initialStructure()
         cv::Rodrigues(rvec, r);
         MatrixXd R_pnp,tmp_R_pnp;
         cv::cv2eigen(r, tmp_R_pnp);
+        //change frame: from camera to world
         R_pnp = tmp_R_pnp.transpose();
         MatrixXd T_pnp;
         cv::cv2eigen(t, T_pnp);
         T_pnp = R_pnp * (-T_pnp);
-        frame_it->second.R = R_pnp * RIC[0].transpose();
+        frame_it->second.R = R_pnp; // * RIC[0].transpose();
         frame_it->second.T = T_pnp;
-        cout << "hhhh" << endl;
+        //cout << "hhhh" << endl;
         //getchar();
 
-            Eigen::Quaterniond curr_Q =Quaterniond(frame_it->second.R);
+            Eigen::Quaterniond curr_Q(frame_it->second.R);
+            curr_Q.normalized();
             std::ofstream foutS("/home/zhouchang/result/sfm.txt",std::ios::app);
             foutS.setf(std::ios::fixed, std::ios::floatfield);
             foutS.precision(5);
@@ -300,9 +316,21 @@ bool Estimator::initialStructure()
                   << curr_Q.w() << endl;
             foutS.close();
     }
-    return true;
+    if (solveScale()){
+        return true;
+    } else{
+        std::cerr << " solveScale failed!" << std::endl;
+        return false;
+    }
 }
 
+bool Estimator::solveScale(){
+    TicToc t_g;
+    Eigen::VectorXd x;
+    //solve scale
+    //bool result = VisualAlignment(all_image_frame,);
+
+}
 void Estimator::slideWindow()
 {
     TicToc t_margin;
@@ -330,6 +358,7 @@ void Estimator::slideWindow()
     {
         if (frame_count == WINDOW_SIZE)
         {
+            Headers[frame_count - 1] = Headers[frame_count];
             Ps[frame_count - 1] = Ps[frame_count];
             Rs[frame_count - 1] = Rs[frame_count];
             slideWindowNew();
@@ -347,20 +376,7 @@ void Estimator::slideWindowNew()
 void Estimator::slideWindowOld()
 {
     sum_of_back++;
-
-    bool shift_depth = solver_flag == NON_LINEAR ? true : false;
-    if (shift_depth)
-    {
-        Matrix3d R0, R1;
-        Vector3d P0, P1;
-        R0 = back_R0 * ric[0];
-        R1 = Rs[0] * ric[0];
-        P0 = back_P0 + back_R0 * tic[0];
-        P1 = Ps[0] + Rs[0] * tic[0];
-        f_manager.removeBackShiftDepth(R0, P0, R1, P1);
-    }
-    else
-        f_manager.removeBack();
+    f_manager.removeBack();
 }
 //compute the first frame's pose in the window by judge parallax,
 bool Estimator::relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l)
@@ -371,7 +387,7 @@ bool Estimator::relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l)
         vector<pair<Vector3d, Vector3d>> corres;
         //corresponding i and last frame
         corres = f_manager.getCorresponding(i, WINDOW_SIZE);
-        ROS_INFO("corres = %d", corres.size());
+        //ROS_INFO("corres = %d", corres.size());
         if (corres.size() > 20)
         {
             double sum_parallax = 0;
@@ -384,12 +400,12 @@ bool Estimator::relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l)
                 sum_parallax = sum_parallax + parallax;
             }
             average_parallax = 1.0 * sum_parallax / int(corres.size());
-            ROS_INFO("average_parallax * 460 = %d", average_parallax * 460);
+            //ROS_INFO("average_parallax * 460 = %d", average_parallax * 460);
             if(average_parallax * 460 > 30 && m_estimator.solveRelativeRT(corres, relative_R, relative_T))
             {
                 l = i;
-                ROS_INFO("l = %d", l);
-                ROS_DEBUG("average_parallax %f choose l %d and newest frame to triangulate the whole structure", average_parallax * 460, l);
+                //ROS_INFO("l = %d", l);
+                //ROS_DEBUG("average_parallax %f choose l %d and newest frame to triangulate the whole structure", average_parallax * 460, l);
                 return true;
             }
         }

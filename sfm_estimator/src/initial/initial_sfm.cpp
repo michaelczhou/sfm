@@ -115,6 +115,7 @@ void GlobalSFM::triangulateTwoFrames(int frame0, Eigen::Matrix<double, 3, 4> &Po
 // relative_q[i][j]  j_q_i
 // relative_t[i][j]  j_t_ji  (j < i)
 //compute l frame's pose and all feature points' position
+//frame_num = frame_count +1 = window_size +1
 bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 			  const Matrix3d relative_R, const Vector3d relative_T,
 			  vector<SFMFeature> &sfm_f, map<int, Vector3d> &sfm_tracked_points)
@@ -159,13 +160,16 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 	//2: solve pnp l + 1; trangulate l + 1 ------- frame_num - 1; 
 	for (int i = l; i < frame_num - 1 ; i++)
 	{
-		// solve pnp
+		// solve pnp,every frame relative to l frame
 		if (i > l)
 		{
 			Matrix3d R_initial = c_Rotation[i - 1];
 			Vector3d P_initial = c_Translation[i - 1];
 			if(!solveFrameByPnP(R_initial, P_initial, i, sfm_f))
-				return false;
+            {
+                cout << "pnp failed" << endl;
+                return false;
+            }
 			c_Rotation[i] = R_initial;
 			c_Translation[i] = P_initial;
 			c_Quat[i] = c_Rotation[i];
@@ -187,7 +191,10 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 		Matrix3d R_initial = c_Rotation[i + 1];
 		Vector3d P_initial = c_Translation[i + 1];
 		if(!solveFrameByPnP(R_initial, P_initial, i, sfm_f))
-			return false;
+        {
+            cout << "pnp failed" << endl;
+            return false;
+        }
 		c_Rotation[i] = R_initial;
 		c_Translation[i] = P_initial;
 		c_Quat[i] = c_Rotation[i];
@@ -199,6 +206,7 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 	//5: triangulate all other points
 	for (int j = 0; j < feature_num; j++)
 	{
+        //avoid triangulate repetitively
 		if (sfm_f[j].state == true)
 			continue;
 		if ((int)sfm_f[j].observation.size() >= 2)
@@ -219,16 +227,17 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 	}
 
 
+    //output keyframe pose
 	for (int i = 0; i < frame_num; i++)
 	{
 		q[i] = c_Rotation[i].transpose();
-		cout << "solvePnP  q" << " i " << i <<"  " <<q[i].w() << "  " << q[i].vec().transpose() << endl;
+		//cout << "solvePnP  q" << " i " << i <<"  " <<q[i].w() << "  " << q[i].vec().transpose() << endl;
 	}
 	for (int i = 0; i < frame_num; i++)
 	{
 		Vector3d t_tmp;
 		t_tmp = -1 * (q[i] * c_Translation[i]);
-		cout << "solvePnP  t" << " i " << i <<"  " << t_tmp.x() <<"  "<< t_tmp.y() <<"  "<< t_tmp.z() << endl;
+		//cout << "solvePnP t" << " i " << i <<"  " << t_tmp.x() <<"  "<< t_tmp.y() <<"  "<< t_tmp.z() << endl;
 	}
 
 	//full BA
@@ -263,6 +272,7 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 		//cout << "sfm_f[i].observation.size() =  " << sfm_f[i].observation.size() << endl;
 		if (sfm_f[i].state != true)
 			continue;
+        //第i个点，优化观察到i的帧
 		for (int j = 0; j < int(sfm_f[i].observation.size()); j++)
 		{
 			int l = sfm_f[i].observation[j].first;
@@ -281,9 +291,11 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 	options.linear_solver_type = ceres::DENSE_SCHUR;
 	//options.minimizer_progress_to_stdout = true;
 	options.max_solver_time_in_seconds = 0.2;
+    options.max_num_iterations = 55;
 	ceres::Solver::Summary summary;
 	ceres::Solve(options, &problem, &summary);
-	//std::cout << summary.BriefReport() << "\n";
+	std::cout << summary.BriefReport() << "\n";
+	LOG(INFO) << summary.BriefReport();
 	if (summary.termination_type == ceres::CONVERGENCE || summary.final_cost < 5e-03)
 	{
 		cout << "vision only BA converge" << endl;
@@ -291,7 +303,7 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 	else
 	{
 		cout << "vision only BA not converge " << endl;
-		//return false;
+		return false;
 	}
 	for (int i = 0; i < frame_num; i++)
 	{

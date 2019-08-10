@@ -8,6 +8,7 @@
 #include "camera_estimator.h"
 #include "parameters.h"
 #include "utility/visualization.h"
+#include <glog/logging.h>
 
 Estimator estimator;
 
@@ -85,7 +86,7 @@ void process(){
         m_estimator.lock();
 
         flag++;
-        if( flag == 30)
+        if( flag == 20)
             estimator.solver_flag = Estimator::SFM;
         std::cout << " flag = " << flag << std::endl;
         for (auto &measurement : measurements)
@@ -131,8 +132,7 @@ void process(){
         m_estimator.unlock();
         m_buf.lock();
         m_state.lock();
-        update();
-        if (estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR)
+       // if (estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR)
             update();
         m_state.unlock();
         m_buf.unlock();
@@ -140,6 +140,18 @@ void process(){
 }
 
 int main(int argc, char **argv){
+
+    ::google::InitGoogleLogging(argv[0]);
+    ::google::SetStderrLogging(::google::INFO);
+    ::google::SetLogDestination(google::INFO, "log/INFO_");
+
+    ::google::InstallFailureSignalHandler();
+    ::google::ParseCommandLineFlags(&argc, &argv, true);
+    // ::google::SetStderrLogging(FLAGS_logLevel); // 确认log信息输出等级
+
+    FLAGS_stderrthreshold = 0;     // INFO: 0, WARNING: 1, ERROR: 2, FATAL: 3
+    FLAGS_colorlogtostderr = true; //设置输出到屏幕的日志显示相应颜色
+
     ros::init(argc, argv, "sfm_estimator");
     ros::NodeHandle n("~");
     ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Debug);

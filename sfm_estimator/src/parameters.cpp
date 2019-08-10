@@ -91,7 +91,9 @@ void readParameters(ros::NodeHandle &n)
         cv::cv2eigen(cv_R, eigen_R);
         cv::cv2eigen(cv_T, eigen_T);
         Eigen::Quaterniond Q(eigen_R);
-        eigen_R = Q.normalized();
+        Q.normalized();
+        eigen_R = Q.toRotationMatrix();
+        //eigen_R = Q.normalized();
         RIC.push_back(eigen_R);
         TIC.push_back(eigen_T);
         ROS_INFO_STREAM("Extrinsic_R : " << std::endl << RIC[0]);

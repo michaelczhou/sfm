@@ -35,6 +35,7 @@ class Estimator
     bool initialStructure();
     bool relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l);
     void slideWindow();
+    bool solveScale();
     void solveOdometry();
     void slideWindowNew();
     void slideWindowOld();
