@@ -2,7 +2,8 @@
 
 #common parameters
 imu_topic: "/imu0"
-image_topic: "/cam0/image_raw"
+#image_topic: "/cam0/image_raw"
+image_topic: "/image_raw"
 output_path: "/home/zhouchang/"
 
 #camera calibration 

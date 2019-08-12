@@ -304,7 +304,7 @@ bool Estimator::initialStructure()
             curr_Q.normalized();
             std::ofstream foutS("/home/zhouchang/result/sfm.txt",std::ios::app);
             foutS.setf(std::ios::fixed, std::ios::floatfield);
-            foutS.precision(5);
+            foutS.precision(0);
             foutS << frame_it->second.t * 1e9 << " ";
             foutS.precision(5);
             foutS << frame_it->second.T.x() << " "
@@ -351,6 +351,10 @@ void Estimator::slideWindow()
             Ps[WINDOW_SIZE] = Ps[WINDOW_SIZE - 1];
             Rs[WINDOW_SIZE] = Rs[WINDOW_SIZE - 1];
 
+//            map<double, ImageFrame>::iterator it_0;
+//            it_0 = all_image_frame.find(t_0);
+//            all_image_frame.erase(all_image_frame.begin(),it_0);
+//            all_image_frame.erase(it_0);
             slideWindowOld();
         }
     }
