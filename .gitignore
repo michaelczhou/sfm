@@ -30,3 +30,6 @@
 *.exe
 *.out
 *.app
+
+./LkOptFlowSfm/build
+./LkOptFlowSfm/log
