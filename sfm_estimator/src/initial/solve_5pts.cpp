@@ -190,6 +190,7 @@ namespace cv {
 }
 
 //solve Rt by compute FundermentalMat using 5pts
+//parallax >30,corres >=15,inlier_cnt>12
 bool MotionEstimator::solveRelativeRT(const vector<pair<Vector3d, Vector3d>> &corres, Matrix3d &Rotation, Vector3d &Translation)
 {
     if (corres.size() >= 15)

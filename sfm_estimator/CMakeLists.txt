@@ -15,6 +15,7 @@ find_package(catkin REQUIRED COMPONENTS
         )
 find_package(OpenCV REQUIRED)
 find_package(Ceres REQUIRED)
+find_package(Pangolin REQUIRED)
 
 INCLUDE_DIRECTORIES(${catkin_INCLUDE_DIRS} ${CERES_INCLUDE_DIRS})
 
@@ -40,4 +41,4 @@ add_executable(sfm_estimator
         src/initial/solve_5pts.cpp
         src/initial/initial_sfm.cpp
         )
-target_link_libraries(sfm_estimator ${catkin_LIBRARIES} ${OpenCV_LIBS} ${CERES_LIBRARIES})
+target_link_libraries(sfm_estimator ${catkin_LIBRARIES} ${OpenCV_LIBS} ${CERES_LIBRARIES} ${Pangolin_LIBRARIES})

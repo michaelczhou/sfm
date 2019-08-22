@@ -16,6 +16,7 @@ std::condition_variable con;
 double current_time = -1;
 
 std::queue<sensor_msgs::PointCloudConstPtr> feature_buf;
+std::queue<geometry_msgs::PointStampedConstPtr> gt_buf;
 
 std::mutex m_buf;
 std::mutex m_state;
@@ -70,6 +71,12 @@ void feature_callback(const sensor_msgs::PointCloudConstPtr &feature_msg)
     }
     m_buf.lock();
     feature_buf.push(feature_msg);
+    m_buf.unlock();
+    con.notify_one();
+}
+void gt_callback(const geometry_msgs::PointStampedConstPtr &gt_msg){
+    m_buf.lock();
+    gt_buf.push(gt_msg);
     m_buf.unlock();
     con.notify_one();
 }
@@ -160,6 +167,7 @@ int main(int argc, char **argv){
     registerPub(n);
 
     ros::Subscriber sub_image = n.subscribe("/sfm_feature_tracker/feature", 2000, feature_callback);
+    ros::Subscriber sub_gt = n.subscribe("/leica/posion", 100, gt_callback);
 
     std::thread measurement_process{process};
     ros::spin();

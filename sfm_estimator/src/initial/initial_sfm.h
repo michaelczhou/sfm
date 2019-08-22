@@ -8,9 +8,12 @@
 #include <map>
 #include <opencv2/core/eigen.hpp>
 #include <opencv2/opencv.hpp>
+#include <opencv2/core/core.hpp>
 #include <glog/logging.h>
+#include <pangolin/pangolin.h>
 using namespace Eigen;
 using namespace std;
+using namespace cv;
 
 
 
@@ -62,6 +65,7 @@ public:
 			  const Matrix3d relative_R, const Vector3d relative_T,
 			  vector<SFMFeature> &sfm_f, map<int, Vector3d> &sfm_tracked_points);
 
+	void Draw(Eigen::Matrix<double, 3, 4> poses[], vector<SFMFeature>& sfm);
 private:
 	bool solveFrameByPnP(Matrix3d &R_initial, Vector3d &P_initial, int i, vector<SFMFeature> &sfm_f);
 

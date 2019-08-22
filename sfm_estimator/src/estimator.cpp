@@ -89,7 +89,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
                 f_manager.removeFailures();
                 last_R = Rs[WINDOW_SIZE];
                 last_P = Ps[WINDOW_SIZE];
-                last_R0 = Rs[0];
+                last_R0 = Rs[0]  ;
                 last_P0 = Ps[0];
             } else
                 slideWindow();
@@ -188,6 +188,7 @@ bool Estimator::initialStructure()
 {
     TicToc t_sfm;
     // global sfm
+    //Q and T relative to world frame
     Quaterniond Q[frame_count];
     Vector3d T[frame_count];
     map<int, Vector3d> sfm_tracked_points;
@@ -297,24 +298,23 @@ bool Estimator::initialStructure()
         T_pnp = R_pnp * (-T_pnp);
         frame_it->second.R = R_pnp; // * RIC[0].transpose();
         frame_it->second.T = T_pnp;
-        //cout << "hhhh" << endl;
         //getchar();
 
-            Eigen::Quaterniond curr_Q(frame_it->second.R);
-            curr_Q.normalized();
-            std::ofstream foutS("/home/zhouchang/result/sfm.txt",std::ios::app);
-            foutS.setf(std::ios::fixed, std::ios::floatfield);
-            foutS.precision(0);
-            foutS << frame_it->second.t * 1e9 << " ";
-            foutS.precision(5);
-            foutS << frame_it->second.T.x() << " "
-                  << frame_it->second.T.y() << " "
-                  << frame_it->second.T.z() << " "
-                  << curr_Q.x() << " "
-                  << curr_Q.y() << " "
-                  << curr_Q.z() << " "
-                  << curr_Q.w() << endl;
-            foutS.close();
+        Eigen::Quaterniond curr_Q(frame_it->second.R);
+        curr_Q.normalized();
+        std::ofstream foutS("/home/zhouchang/result/sfm.txt",std::ios::app);
+        foutS.setf(std::ios::fixed, std::ios::floatfield);
+        foutS.precision(0);
+        foutS << frame_it->second.t * 1e9 << " ";
+        foutS.precision(5);
+        foutS << frame_it->second.T.x() << " "
+              << frame_it->second.T.y() << " "
+              << frame_it->second.T.z() << " "
+              << curr_Q.x() << " "
+              << curr_Q.y() << " "
+              << curr_Q.z() << " "
+              << curr_Q.w() << endl;
+        foutS.close();
     }
     if (solveScale()){
         return true;
@@ -329,8 +329,8 @@ bool Estimator::solveScale(){
     Eigen::VectorXd x;
     //solve scale
     //bool result = VisualAlignment(all_image_frame,);
-
 }
+
 void Estimator::slideWindow()
 {
     TicToc t_margin;

@@ -18,6 +18,117 @@ void GlobalSFM::triangulatePoint(Eigen::Matrix<double, 3, 4> &Pose0, Eigen::Matr
 	point_3d(2) = triangulated_point(2) / triangulated_point(3);
 }
 
+void GlobalSFM::Draw(Eigen::Matrix<double, 3, 4> poses[], vector<SFMFeature>& sfm)
+{
+	if (sfm.empty()) {
+		cerr << "parameter is empty!" << endl;
+		return;
+	}
+	float fx = 277.34;
+	float fy = 291.402;
+	float cx = 312.234;
+	float cy = 239.777;
+	// create pangolin window and plot the trajectory
+	pangolin::CreateWindowAndBind("Trajectory Viewer", 1024, 768);
+	glEnable(GL_DEPTH_TEST);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+	pangolin::OpenGlRenderState s_cam(
+			pangolin::ProjectionMatrix(1024, 768, 500, 500, 512, 389, 0.1, 1000),
+			pangolin::ModelViewLookAt(0, -0.1, -1.8, 0, 0, 0, 0.0, -1.0, 0.0)
+	);
+
+	pangolin::View &d_cam = pangolin::CreateDisplay()
+			.SetBounds(0.0, 1.0, pangolin::Attach::Pix(175), 1.0, -1024.0f / 768.0f)
+			.SetHandler(new pangolin::Handler3D(s_cam));
+
+	while (pangolin::ShouldQuit() == false) {
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+		d_cam.Activate(s_cam);
+		glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+
+		// draw poses
+		float sz = 0.1;
+		int width = 640, height = 480;
+		// for (auto &Tcw: poses) {
+		for(int i = 0; i < 20; i++)
+		{
+			glPushMatrix();
+			//Sophus::Matrix4f m = Tcw.inverse().matrix().cast<float>();
+			Matrix4d current_pos = Matrix4d::Identity();
+			current_pos.block<3,4>(0,0) = poses[i];
+			current_pos = current_pos.inverse();
+			glMultMatrixd((GLdouble *) current_pos.data());
+			glColor3f(1, i/12.0, 0);
+			glLineWidth(2);
+			glBegin(GL_LINES);
+			glVertex3f(0, 0, 0);
+			glVertex3f(sz * (0 - cx) / fx, sz * (0 - cy) / fy, sz);
+			glVertex3f(0, 0, 0);
+			glVertex3f(sz * (0 - cx) / fx, sz * (height - 1 - cy) / fy, sz);
+			glVertex3f(0, 0, 0);
+			glVertex3f(sz * (width - 1 - cx) / fx, sz * (height - 1 - cy) / fy, sz);
+			glVertex3f(0, 0, 0);
+			glVertex3f(sz * (width - 1 - cx) / fx, sz * (0 - cy) / fy, sz);
+			glVertex3f(sz * (width - 1 - cx) / fx, sz * (0 - cy) / fy, sz);
+			glVertex3f(sz * (width - 1 - cx) / fx, sz * (height - 1 - cy) / fy, sz);
+			glVertex3f(sz * (width - 1 - cx) / fx, sz * (height - 1 - cy) / fy, sz);
+			glVertex3f(sz * (0 - cx) / fx, sz * (height - 1 - cy) / fy, sz);
+			glVertex3f(sz * (0 - cx) / fx, sz * (height - 1 - cy) / fy, sz);
+			glVertex3f(sz * (0 - cx) / fx, sz * (0 - cy) / fy, sz);
+			glVertex3f(sz * (0 - cx) / fx, sz * (0 - cy) / fy, sz);
+			glVertex3f(sz * (width - 1 - cx) / fx, sz * (0 - cy) / fy, sz);
+			glEnd();
+			glPopMatrix();
+		}
+
+		// }
+
+		// points
+		glPointSize(2);
+		glBegin(GL_POINTS);
+		for (size_t i = 0; i < sfm.size(); i++)
+		{
+			if(sfm[i].state == true)
+			{
+				glColor3f(0, 1, 0.7);
+				glVertex3d(sfm[i].position[0], sfm[i].position[1], sfm[i].position[2]);
+			}
+
+		}
+		glEnd();
+
+		// glLineWidth(2);
+		// if(trj.size() > 1)
+		// {
+		//     for(int i = 0;i < trj.size() - 1;i++)
+		//     {
+		//         glColor3f(0, 1, 0);
+		//         glBegin(GL_LINES);
+		//         auto p1 = trj[i], p2 = trj[i + 1];
+		//         glVertex3d(p1[0], p1[1], p1[2]);
+		//         glVertex3d(p2[0], p2[1], p2[2]);
+		//         glEnd();
+		//     }
+		// }
+
+		// m_img.lock();
+		// imshow("img",img);
+		// waitKey(5);
+		// // imageTexture.Upload(img.data,GL_RGB,GL_UNSIGNED_BYTE);
+		// // d_image.Activate();
+		// // glColor3f(1.0,1.0,1.0);
+		// // imageTexture.RenderToViewport();
+		// m_img.unlock();
+		pangolin::FinishFrame();
+
+		//usleep(5000);   // sleep 5 ms
+	}
+}
+
+
 
 bool GlobalSFM::solveFrameByPnP(Matrix3d &R_initial, Vector3d &P_initial, int i,
 								vector<SFMFeature> &sfm_f)
@@ -139,6 +250,7 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 	Matrix3d c_Rotation[frame_num];
 	Vector3d c_Translation[frame_num];
 	Quaterniond c_Quat[frame_num];
+    //l frame to current frame
 	double c_rotation[frame_num][4];
 	double c_translation[frame_num][3];
 	Eigen::Matrix<double, 3, 4> Pose[frame_num];
@@ -180,7 +292,7 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 		// triangulate point based on the solve pnp result
 		triangulateTwoFrames(i, Pose[i], frame_num - 1, Pose[frame_num - 1], sfm_f);
 	}
-	//3: triangulate l-----l+1 l+2 ... frame_num -2
+	//3: triangulate l-----l+1 l+2 ... frame_num -2 ;l is wordFrame now
 	for (int i = l + 1; i < frame_num - 1; i++)
 		triangulateTwoFrames(l, Pose[l], i, Pose[i], sfm_f);
 	//4: solve pnp l-1; triangulate l-1 ----- l
@@ -291,7 +403,7 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 	options.linear_solver_type = ceres::DENSE_SCHUR;
 	//options.minimizer_progress_to_stdout = true;
 	options.max_solver_time_in_seconds = 0.2;
-    options.max_num_iterations = 55;
+    options.max_num_iterations = 70;
 	ceres::Solver::Summary summary;
 	ceres::Solve(options, &problem, &summary);
 	std::cout << summary.BriefReport() << "\n";
@@ -325,6 +437,7 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 		if(sfm_f[i].state)
 			sfm_tracked_points[sfm_f[i].id] = Vector3d(sfm_f[i].position[0], sfm_f[i].position[1], sfm_f[i].position[2]);
 	}
+	//Draw(Pose, sfm_f);
 	return true;
 
 }
